@@ -1,6 +1,6 @@
 import re
 from functools import wraps
-from flask import session, jsonify
+from flask import session, jsonify, request
 from extensions import db
 from models import User
 
@@ -29,15 +29,20 @@ def _validate_email(val, field='El. paštas'):
 
 def get_current_user():
     user_id = session.get('user_id')
-    if not user_id:
-        return None
-    return db.session.get(User, user_id)
+    if user_id:
+        return db.session.get(User, user_id)
+    auth = request.authorization
+    if auth and auth.username and auth.password:
+        user = User.query.filter_by(username=auth.username).first()
+        if user and user.is_active and user.check_password(auth.password):
+            return user
+    return None
 
 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('user_id'):
+        if not get_current_user():
             return jsonify({'error': 'Nesate prisijungęs'}), 401
         return f(*args, **kwargs)
     return decorated

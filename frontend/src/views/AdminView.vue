@@ -6,6 +6,7 @@
       <span class="app-name">Darbuotojų Apskaita — Administravimas</span>
       <nav class="tabs">
         <button :class="['tab', { active: activeTab === 'invites' }]" @click="activeTab = 'invites'">Pakvietimai</button>
+        <button :class="['tab', { active: activeTab === 'users' }]" @click="activeTab = 'users'">Naudotojai</button>
         <button :class="['tab', { active: activeTab === 'projects' }]" @click="activeTab = 'projects'">Projektai</button>
       </nav>
       <div class="user-area">
@@ -18,6 +19,41 @@
     <main class="content">
       <template v-if="activeTab === 'projects'">
         <ProjectsPanel />
+      </template>
+
+      <template v-else-if="activeTab === 'users'">
+        <h2>Naudotojų paskyrų valdymas</h2>
+        <div v-if="usersLoading" class="loading">Kraunama…</div>
+        <div v-else>
+          <p v-if="!users.length" class="empty">Naudotojų nėra.</p>
+          <div v-else class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Vardas Pavardė</th><th>El. paštas</th><th>Rolė</th><th>Būsena</th><th>Veiksmai</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="u in users" :key="u.id">
+                  <td>{{ u.first_name }} {{ u.last_name }} ({{ u.username }})</td>
+                  <td>{{ u.email || '—' }}</td>
+                  <td>{{ roleLabel(u.role) }}</td>
+                  <td>
+                    <span :class="['badge', u.is_active ? 'used' : 'expired']">
+                      {{ u.is_active ? 'Aktyvi' : 'Užblokuota' }}
+                    </span>
+                  </td>
+                  <td>
+                    <button v-if="u.is_active && u.id !== user?.id && u.role !== 'admin'" class="revoke-btn" @click="toggleUserStatus(u, false)">
+                      Blokuoti
+                    </button>
+                    <button v-else-if="!u.is_active" class="copy-btn" style="padding:4px 11px;font-size:12px" @click="toggleUserStatus(u, true)">
+                      Aktyvuoti
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </template>
 
       <template v-else>
@@ -100,6 +136,8 @@ const roleLabel = (r) => roleLabels[r] ?? r
 
 const invites = ref([])
 const invitesLoading = ref(false)
+const users = ref([])
+const usersLoading = ref(false)
 const inviteEmail = ref('')
 const inviteRole = ref('worker')
 const inviteLoading = ref(false)
@@ -117,6 +155,24 @@ async function loadInvites() {
   const res = await API.get('/invites')
   invites.value = res.data
   invitesLoading.value = false
+}
+
+async function loadUsers() {
+  usersLoading.value = true
+  const res = await API.get('/users')
+  users.value = res.data
+  usersLoading.value = false
+}
+
+async function toggleUserStatus(u, activate) {
+  if (!activate) {
+    const ok = await confirmDialog.value.show(`Ar tikrai norite blokuoti naudotoją ${u.first_name} ${u.last_name}?`)
+    if (!ok) return
+    await API.patch(`/users/${u.id}/dismiss`)
+  } else {
+    await API.patch(`/users/${u.id}/reactivate`)
+  }
+  await loadUsers()
 }
 
 async function createInvite() {
@@ -153,7 +209,7 @@ async function copyLink() {
 
 onMounted(async () => {
   await fetchMe()
-  await loadInvites()
+  await Promise.all([loadInvites(), loadUsers()])
 })
 </script>
 

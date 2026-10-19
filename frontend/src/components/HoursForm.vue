@@ -45,6 +45,19 @@
 
       <form @submit.prevent="submit">
         <div class="field">
+          <label>Užduotis projekte</label>
+          <select v-model="form.task_id" required>
+            <option value="" disabled>-- Pasirinkite užduotį --</option>
+            <option v-for="t in projectTasks" :key="t.id" :value="t.id">
+              {{ t.title }}
+            </option>
+          </select>
+          <span v-if="!projectTasks.length" class="optional" style="font-size:12px">
+            Šiame projekte dar nėra sukurtų užduočių.
+          </span>
+        </div>
+
+        <div class="field">
           <label>Data</label>
           <button type="button" class="date-btn" @click="openDatePicker">
             <svg class="date-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -157,11 +170,12 @@ async function openPicker(which) {
   }
 }
 
-const form = ref({ project_id: '', date: today, lunch_break: 60, notes: '' })
+const form = ref({ project_id: '', task_id: '', date: today, lunch_break: 60, notes: '' })
 const lunchEnabled = ref(false)
 const error = ref('')
 const loading = ref(false)
 const projects = ref([])
+const projectTasks = ref([])
 const selectedProject = ref(null)
 const search = ref('')
 
@@ -171,14 +185,34 @@ const filteredProjects = computed(() => {
   return projects.value.filter(p => p.name.toLowerCase().includes(q))
 })
 
-function selectProject(p) {
+async function fetchProjectTasks(projectId) {
+  if (!projectId) {
+    projectTasks.value = []
+    return
+  }
+  try {
+    const res = await API.get(`/projects/${projectId}/tasks`)
+    projectTasks.value = res.data
+    if (!form.value.task_id && res.data.length) {
+      form.value.task_id = res.data[0].id
+    }
+  } catch {
+    projectTasks.value = []
+  }
+}
+
+async function selectProject(p) {
   selectedProject.value = p
   form.value.project_id = p.id
+  form.value.task_id = ''
+  await fetchProjectTasks(p.id)
 }
 
 function changeProject() {
   selectedProject.value = null
+  projectTasks.value = []
   form.value.project_id = ''
+  form.value.task_id = ''
   search.value = ''
 }
 
@@ -199,9 +233,10 @@ function formatHours(h) {
   return `${hrs} val. ${mins} min.`
 }
 
-function loadFromEntry(entry) {
+async function loadFromEntry(entry) {
   if (!entry) return
   form.value.project_id = entry.project_id ?? ''
+  form.value.task_id = entry.task_id ?? ''
   form.value.date = entry.date
   form.value.notes = entry.notes ?? ''
   if (entry.lunch_break) {
@@ -213,6 +248,10 @@ function loadFromEntry(entry) {
   }
   if (entry.start_time) startTime.value = entry.start_time
   if (entry.end_time) endTime.value = entry.end_time
+  if (entry.project_id) {
+    await fetchProjectTasks(entry.project_id)
+    if (entry.task_id) form.value.task_id = entry.task_id
+  }
 }
 
 watch(() => props.editEntry, loadFromEntry, { immediate: true })
@@ -228,8 +267,9 @@ onMounted(async () => {
 
 function resetForm() {
   selectedProject.value = null
+  projectTasks.value = []
   search.value = ''
-  form.value = { project_id: '', date: today, lunch_break: 60, notes: '' }
+  form.value = { project_id: '', task_id: '', date: today, lunch_break: 60, notes: '' }
   lunchEnabled.value = false
   startTime.value = '08:00'
   endTime.value = '17:00'
@@ -239,7 +279,8 @@ async function submit() {
   error.value = ''
   loading.value = true
   const payload = {
-    project_id: form.value.project_id,
+    project_id: form.value.project_id || null,
+    task_id: form.value.task_id || null,
     date: form.value.date,
     start_time: startTime.value,
     end_time: endTime.value,
@@ -248,7 +289,13 @@ async function submit() {
   }
   try {
     if (props.editEntry) {
-      await API.put(`/hours/${props.editEntry.id}`, payload)
+      if (payload.project_id && payload.task_id) {
+        await API.put(`/projects/${payload.project_id}/tasks/${payload.task_id}/hours/${props.editEntry.id}`, payload)
+      } else {
+        await API.put(`/hours/${props.editEntry.id}`, payload)
+      }
+    } else if (payload.project_id && payload.task_id) {
+      await API.post(`/projects/${payload.project_id}/tasks/${payload.task_id}/hours`, payload)
     } else {
       await API.post('/hours', payload)
     }

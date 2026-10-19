@@ -32,7 +32,8 @@ router.beforeEach(async (to) => {
 
   try {
     const res = await API.get('/auth/me')
-    const role = res.data.role
+    const role = res.data?.role
+    if (!role) return '/login'
 
     if (to.meta.allowedRoles && !to.meta.allowedRoles.includes(role)) {
       if (role === 'admin') return '/admin'

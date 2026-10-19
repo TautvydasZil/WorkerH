@@ -20,6 +20,7 @@
             <span class="entry-hours">{{ entry.hours }}val.</span>
           </template>
           <span v-if="entry.project_name" class="entry-project">{{ entry.project_name }}</span>
+          <span v-if="entry.task_title" class="entry-project">📋 {{ entry.task_title }}</span>
           <span v-if="entry.notes" class="entry-notes">{{ entry.notes }}</span>
         </div>
         <div class="entry-actions">

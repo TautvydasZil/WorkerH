@@ -89,10 +89,10 @@
         <LeaveRequestList title="Mano nedarbingumo prašymai" :entries="sickRequests" @cancelled="refreshLeave" />
       </template>
 
-      <!-- ── Projektai (tik peržiūra) ── -->
+      <!-- ── Projektai ir užduotys (peržiūra) ── -->
       <template v-else-if="activeTab === 'projects'">
         <button class="back-btn" @click="activeTab = 'home'">← Atgal</button>
-        <div class="section-header"><h2>Projektai</h2></div>
+        <div class="section-header"><h2>Projektai ir jų užduotys</h2></div>
         <div v-if="projectsLoading" class="loading">Kraunama…</div>
         <div v-else>
           <p v-if="!projects.length" class="empty">Projektų dar nėra.</p>
@@ -103,6 +103,15 @@
               <span v-else-if="p.latitude != null" class="project-address">
                 📍 {{ p.latitude.toFixed(5) }}, {{ p.longitude.toFixed(5) }}
               </span>
+              <div v-if="(projectTasksMap[p.id] || []).length" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
+                <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px;">Priskirtos užduotys:</div>
+                <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px;">
+                  <li v-for="t in projectTasksMap[p.id]" :key="t.id" style="font-size:13px; color:var(--text-h);">
+                    • <strong>{{ t.title }}</strong>
+                    <span v-if="t.description" style="color:var(--text); font-size:12px;"> — {{ t.description }}</span>
+                  </li>
+                </ul>
+              </div>
             </li>
           </ul>
         </div>
@@ -179,6 +188,7 @@ const activeTab = ref('home')
 const hours = ref([])
 const leaveRequests = ref([])
 const projects = ref([])
+const projectTasksMap = ref({})
 const projectsLoading = ref(false)
 const editingEntry = ref(null)
 
@@ -247,7 +257,18 @@ async function refreshLeave() {
 async function loadProjects() {
   projectsLoading.value = true
   const res = await API.get('/projects')
-  projects.value = res.data.filter(p => !p.is_completed)
+  const active = res.data.filter(p => !p.is_completed)
+  projects.value = active
+  const map = {}
+  await Promise.all(active.map(async (p) => {
+    try {
+      const tRes = await API.get(`/projects/${p.id}/tasks`)
+      map[p.id] = tRes.data
+    } catch {
+      map[p.id] = []
+    }
+  }))
+  projectTasksMap.value = map
   projectsLoading.value = false
 }
 

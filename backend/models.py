@@ -52,10 +52,31 @@ class Project(db.Model):
         }
 
 
+class Task(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    project_id  = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=False)
+    title       = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.String(500), nullable=True)
+    status      = db.Column(db.String(20), default='todo', nullable=False)  # todo | in_progress | done
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'title': self.title,
+            'name': self.title,
+            'description': self.description,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class HoursLogged(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
     user_id     = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     project_id  = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=True)
+    task_id     = db.Column(db.Integer, db.ForeignKey('task.id'), nullable=True)
     date        = db.Column(db.Date, nullable=False)
     hours       = db.Column(db.Float, nullable=False)
     start_time  = db.Column(db.String(5), nullable=True)
