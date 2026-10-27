@@ -49,6 +49,13 @@ class Project(db.Model):
             'longitude': self.longitude,
             'address': self.address,
             'is_completed': self.is_completed,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            '_links': {
+                'self': f'/api/projects/{self.id}',
+                'collection': '/api/projects',
+                'tasks': f'/api/projects/{self.id}/tasks',
+                'summary': f'/api/projects/{self.id}/summary',
+            }
         }
 
 
@@ -69,6 +76,12 @@ class Task(db.Model):
             'description': self.description,
             'status': self.status,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            '_links': {
+                'self': f'/api/projects/{self.project_id}/tasks/{self.id}',
+                'collection': f'/api/projects/{self.project_id}/tasks',
+                'project': f'/api/projects/{self.project_id}',
+                'hours': f'/api/projects/{self.project_id}/tasks/{self.id}/hours',
+            }
         }
 
 

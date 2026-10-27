@@ -1,0 +1,11 @@
+# Use this workspace to collaborate
+workspace:
+  id: b45ecdb2-8cbf-4aaf-83ee-b7c6b6ba5c51
+
+localResources:
+  specs:
+    - ../backend/openapi.json
+
+cloudResources:
+  collections:
+    ../postman/collections/WorkerH REST API (1 Lab. darbas - 15 metodų + Puslapiavimas, Fi: f4bc0fb3-57fa-4b78-9e15-2e0cc2d4f8bd

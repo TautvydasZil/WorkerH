@@ -28,6 +28,8 @@ Thumbs.db
 .idea/
 *.suo
 *.user
+.env
 
+postman/
 # Claude
 .claude/

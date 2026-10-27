@@ -4,6 +4,7 @@ import time
 from app import app
 from seed import seed_database
 from openapi_spec import OPENAPI_SPEC
+from models import Project, Task, HoursLogged
 
 
 def export_openapi_and_postman():
@@ -21,9 +22,12 @@ def export_openapi_and_postman():
 
     def make_item(name, method, path, expected_status, body=None, extra_test_js=None):
         tests = [
-            f"pm.test('Status code is {expected_status}', function () {{ pm.response.to.have.status({expected_status}); }});",
-            "pm.test('Content-Type is application/json', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });"
+            f"pm.test('Status code is {expected_status}', function () {{ pm.response.to.have.status({expected_status}); }});"
         ]
+        if expected_status != 204:
+            tests.append(
+                "pm.test('Content-Type is application/json', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });"
+            )
         if extra_test_js:
             tests.extend(extra_test_js)
 
@@ -36,7 +40,7 @@ def export_openapi_and_postman():
             "url": {
                 "raw": "{{baseUrl}}" + path,
                 "host": ["{{baseUrl}}"],
-                "path": [p for p in path.strip('/').split('/') if p]
+                "path": [p for p in path.split('?')[0].strip('/').split('/') if p]
             }
         }
         if body is not None:
@@ -61,8 +65,8 @@ def export_openapi_and_postman():
     collection = {
         "info": {
             "_postman_id": "a7f9c120-b165-4000-8000-workerh202601",
-            "name": "WorkerH REST API (1 Lab. darbas - 15 metodų + 404/400/422/201/200)",
-            "description": "Pilna WorkerH REST API Postman kolekcija (15 hierarchinių API metodų: Project -> Task -> WorkHours bei klaidų kodų 404, 400, 422 demonstracija).",
+            "name": "WorkerH REST API (1 Lab. darbas - 15 metodų + Puslapiavimas, Filtravimas, HATEOAS, 404/400/422/201/204)",
+            "description": "Pilna WorkerH REST API Postman kolekcija (15 hierarchinių API metodų: Project -> Task -> WorkHours, puslapiavimas, filtravimas, HATEOAS, sudėtinis resursas ir klaidų kodai).",
             "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
         },
         "variable": [
@@ -73,13 +77,13 @@ def export_openapi_and_postman():
         ],
         "item": [
             {
-                "name": "1. Projektai (1 lygmuo) ir Užduotys (2 lygmuo) ir Darbo laikas (3 lygmuo) — 15 API Metodų",
+                "name": "1. Projektai (1 lygmuo), Užduotys (2 lygmuo), Darbo laikas (3 lygmuo) — 15 API Metodų",
                 "item": [
                     make_item(
-                        "01. [GET] Gauti visų projektų sąrašą (200 OK)",
+                        "01. [GET] Gauti visų projektų sąrašą + HATEOAS (200 OK)",
                         "GET", "/api/projects", 200,
                         extra_test_js=[
-                            "pm.test('Grąžinamas projektų masyvas', function () { var j = pm.response.json(); pm.expect(j).to.be.an('array'); pm.expect(j.length).to.be.above(0); });"
+                            "pm.test('Bent 5 projektai ir yra _links (HATEOAS)', function () { var j = pm.response.json(); pm.expect(j).to.be.an('array'); pm.expect(j.length).to.be.at.least(5); pm.expect(j[0]).to.have.property('_links'); });"
                         ]
                     ),
                     make_item(
@@ -94,7 +98,7 @@ def export_openapi_and_postman():
                         extra_test_js=[
                             "var j = pm.response.json();",
                             "pm.collectionVariables.set('created_project_id', j.id);",
-                            "pm.test('Projektas sukurtas su ID', function () { pm.expect(j.id).to.be.a('number'); pm.expect(j.name).to.eql('Demonstracinis projektas (Postman)'); });"
+                            "pm.test('Projektas sukurtas su ID ir _links', function () { pm.expect(j.id).to.be.a('number'); pm.expect(j).to.have.property('_links'); });"
                         ]
                     ),
                     make_item(
@@ -119,7 +123,7 @@ def export_openapi_and_postman():
                         "05. [GET] Gauti projekto užduočių sąrašą (200 OK)",
                         "GET", "/api/projects/1/tasks", 200,
                         extra_test_js=[
-                            "pm.test('Grąžinamas užduočių sąrašas', function () { var j = pm.response.json(); pm.expect(j).to.be.an('array'); });"
+                            "pm.test('Grąžinamas užduočių sąrašas su _links', function () { var j = pm.response.json(); pm.expect(j).to.be.an('array'); pm.expect(j[0]).to.have.property('_links'); });"
                         ]
                     ),
                     make_item(
@@ -158,7 +162,7 @@ def export_openapi_and_postman():
                         "09. [GET] Gauti projekto užduoties darbo laiko įrašų sąrašą (200 OK)",
                         "GET", "/api/projects/1/tasks/1/hours", 200,
                         extra_test_js=[
-                            "pm.test('Grąžinamas darbo valandų sąrašas', function () { var j = pm.response.json(); pm.expect(j).to.be.an('array'); });"
+                            "pm.test('Grąžinamas darbo valandų sąrašas su _links', function () { var j = pm.response.json(); pm.expect(j).to.be.an('array'); pm.expect(j[0]).to.have.property('_links'); });"
                         ]
                     ),
                     make_item(
@@ -199,72 +203,89 @@ def export_openapi_and_postman():
                         ]
                     ),
                     make_item(
-                        "13. [DELETE] Ištrinti darbo laiko įrašą (200 OK)",
-                        "DELETE", "/api/projects/{{created_project_id}}/tasks/{{created_task_id}}/hours/{{created_hours_id}}", 200,
+                        "13. [DELETE] Ištrinti darbo laiko įrašą (204 No Content)",
+                        "DELETE", "/api/projects/{{created_project_id}}/tasks/{{created_task_id}}/hours/{{created_hours_id}}", 204
+                    ),
+                    make_item(
+                        "14. [DELETE] Ištrinti projekto užduotį (204 No Content)",
+                        "DELETE", "/api/projects/{{created_project_id}}/tasks/{{created_task_id}}", 204
+                    ),
+                    make_item(
+                        "15. [DELETE] Ištrinti projektą (204 No Content)",
+                        "DELETE", "/api/projects/{{created_project_id}}", 204
+                    )
+                ]
+            },
+            {
+                "name": "2. Puslapiavimas, Filtravimas, HATEOAS ir Sudėtinis resursas (Summary)",
+                "item": [
+                    make_item(
+                        "16. [Puslapiavimas] GET /api/projects?page=1&per_page=3&envelope=1",
+                        "GET", "/api/projects?page=1&per_page=3&envelope=1", 200,
                         extra_test_js=[
-                            "pm.test('Darbo laiko įrašas ištrintas', function () { var j = pm.response.json(); pm.expect(j).to.have.property('message'); });"
+                            "pm.test('Puslapiavimas grąžina 3 įrašus ir _links', function () { var j = pm.response.json(); pm.expect(j.items.length).to.eql(3); pm.expect(j.pagination.per_page).to.eql(3); pm.expect(j).to.have.property('_links'); });"
                         ]
                     ),
                     make_item(
-                        "14. [DELETE] Ištrinti projekto užduotį (200 OK)",
-                        "DELETE", "/api/projects/{{created_project_id}}/tasks/{{created_task_id}}", 200,
+                        "17. [Filtravimas] GET /api/projects?is_completed=false&search=Kauno",
+                        "GET", "/api/projects?is_completed=false&search=Kauno", 200,
                         extra_test_js=[
-                            "pm.test('Užduotis ištrinta', function () { var j = pm.response.json(); pm.expect(j).to.have.property('message'); });"
+                            "pm.test('Filtravimas pagal būseną ir paiešką veikia', function () { var j = pm.response.json(); pm.expect(j.length).to.be.above(0); pm.expect(j[0].is_completed).to.eql(false); });"
                         ]
                     ),
                     make_item(
-                        "15. [DELETE] Ištrinti projektą (200 OK)",
-                        "DELETE", "/api/projects/{{created_project_id}}", 200,
+                        "18. [Sudėtinis resursas iš 3 esybių] GET /api/projects/1/summary",
+                        "GET", "/api/projects/1/summary", 200,
                         extra_test_js=[
-                            "pm.test('Projektas ištrintas', function () { var j = pm.response.json(); pm.expect(j).to.have.property('message'); });"
+                            "pm.test('Sudėtinis resursas turi project, statistics ir tasks_breakdown', function () { var j = pm.response.json(); pm.expect(j).to.have.property('project'); pm.expect(j).to.have.property('statistics'); pm.expect(j).to.have.property('tasks_breakdown'); });"
                         ]
                     )
                 ]
             },
             {
-                "name": "2. Klaidų situacijų demonstravimas (404 Not Found, 400 Bad Request, 422 Unprocessable Entity)",
+                "name": "3. Klaidų situacijų demonstravimas (404 Not Found, 400 Bad Request, 422 Unprocessable Entity)",
                 "item": [
                     make_item(
-                        "16. [404 Not Found] Kai projektas nerandamas",
+                        "19. [404 Not Found] Kai projektas nerandamas",
                         "GET", "/api/projects/999999", 404,
                         extra_test_js=["pm.test('Grąžintas klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
                     ),
                     make_item(
-                        "17. [404 Not Found] Kai užduotis nerandama projekte",
+                        "20. [404 Not Found] Kai užduotis nerandama projekte",
                         "GET", "/api/projects/1/tasks/999999", 404,
                         extra_test_js=["pm.test('Grąžintas klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
                     ),
                     make_item(
-                        "18. [404 Not Found] Kai darbo laiko įrašas nerandamas",
+                        "21. [404 Not Found] Kai darbo laiko įrašas nerandamas",
                         "GET", "/api/projects/1/tasks/1/hours/999999", 404,
                         extra_test_js=["pm.test('Grąžintas klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
                     ),
                     make_item(
-                        "19. [400 Bad Request] Kai trūksta privalomų laukų kuriant projektą",
+                        "22. [400 Bad Request] Kai trūksta privalomų laukų kuriant projektą",
                         "POST", "/api/projects", 400,
                         body={},
                         extra_test_js=["pm.test('Grąžintas 400 klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
                     ),
                     make_item(
-                        "20. [400 Bad Request] Kai trūksta privalomų laukų kuriant darbo valandas",
+                        "23. [400 Bad Request] Kai trūksta privalomų laukų kuriant darbo valandas",
                         "POST", "/api/projects/1/tasks/1/hours", 400,
                         body={"date": "2026-10-19"},
                         extra_test_js=["pm.test('Grąžintas 400 klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
                     ),
                     make_item(
-                        "21. [422 Unprocessable Entity] Kai projekto pavadinimas per trumpas arba koordinatės netinkamos",
+                        "24. [422 Unprocessable Entity] Kai projekto pavadinimas per trumpas arba koordinatės netinkamos",
                         "POST", "/api/projects", 422,
                         body={"name": "A", "latitude": 150.0},
                         extra_test_js=["pm.test('Grąžintas 422 validacijos klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
                     ),
                     make_item(
-                        "22. [422 Unprocessable Entity] Kai užduočiai nurodoma neegzistuojanti būsena",
+                        "25. [422 Unprocessable Entity] Kai užduočiai nurodoma neegzistuojanti būsena",
                         "POST", "/api/projects/1/tasks", 422,
                         body={"title": "Testinė užduotis", "status": "nezinoma_busena"},
                         extra_test_js=["pm.test('Grąžintas 422 validacijos klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
                     ),
                     make_item(
-                        "23. [422 Unprocessable Entity] Kai darbo pabaigos laikas ankstesnis už pradžios laiką",
+                        "26. [422 Unprocessable Entity] Kai darbo pabaigos laikas ankstesnis už pradžios laiką",
                         "POST", "/api/projects/1/tasks/1/hours", 422,
                         body={"date": "2026-10-19", "start_time": "17:00", "end_time": "08:00"},
                         extra_test_js=["pm.test('Grąžintas 422 validacijos klaidos pranešimas', function () { pm.expect(pm.response.json()).to.have.property('error'); });"]
@@ -295,18 +316,24 @@ def run_demo_tests():
     start_ts = time.time()
     with app.app_context():
         seed_database(reset=False)
+        p_count = Project.query.count()
+        t_count = Task.query.count()
+        h_count = HoursLogged.query.count()
+        assert p_count >= 5 and t_count >= 5 and h_count >= 5, "Kiekvienoje lentelėje turi būti bent 5 įrašai!"
 
     client = app.test_client()
     headers = {'Authorization': 'Basic YWRtaW46YWRtaW4xMjM='}
 
-    print("=" * 75)
-    print("WorkerH REST API — 15 METODŲ IR KLAIDŲ KODŲ DEMONSTRACIJA")
-    print("=" * 75)
+    print("=" * 78)
+    print("WorkerH REST API — 15 METODŲ, PUSLAPIAVIMO, FILTRAVIMO, HATEOAS IR KLAIDŲ TESTAS")
+    print(f"DB būsena: Projektai={p_count} (>=5), Užduotys={t_count} (>=5), Darbo valandos={h_count} (>=5)")
+    print("=" * 78)
 
     # 1. GET /api/projects
     r = client.get('/api/projects', headers=headers)
     assert r.status_code == 200 and 'application/json' in r.content_type
-    print(f"[01/15] GET    /api/projects                                    -> {r.status_code} OK ({len(r.get_json())} projektai)")
+    assert '_links' in r.get_json()[0]
+    print(f"[01/15] GET    /api/projects                                    -> {r.status_code} OK ({len(r.get_json())} projektai, HATEOAS _links)")
 
     # 2. POST /api/projects
     r = client.post('/api/projects', json={
@@ -334,8 +361,8 @@ def run_demo_tests():
 
     # 5. GET /api/projects/<id>/tasks
     r = client.get('/api/projects/1/tasks', headers=headers)
-    assert r.status_code == 200
-    print(f"[05/15] GET    /api/projects/1/tasks                            -> {r.status_code} OK ({len(r.get_json())} užduotys)")
+    assert r.status_code == 200 and '_links' in r.get_json()[0]
+    print(f"[05/15] GET    /api/projects/1/tasks                            -> {r.status_code} OK ({len(r.get_json())} užduotys, HATEOAS _links)")
 
     # 6. POST /api/projects/<id>/tasks
     r = client.post(f'/api/projects/{proj_id}/tasks', json={
@@ -362,8 +389,8 @@ def run_demo_tests():
 
     # 9. GET /api/projects/<id>/tasks/<task_id>/hours
     r = client.get('/api/projects/1/tasks/1/hours', headers=headers)
-    assert r.status_code == 200
-    print(f"[09/15] GET    /api/projects/1/tasks/1/hours                    -> {r.status_code} OK ({len(r.get_json())} įrašai)")
+    assert r.status_code == 200 and '_links' in r.get_json()[0]
+    print(f"[09/15] GET    /api/projects/1/tasks/1/hours                    -> {r.status_code} OK ({len(r.get_json())} įrašai, HATEOAS _links)")
 
     # 10. POST /api/projects/<id>/tasks/<task_id>/hours
     r = client.post(f'/api/projects/{proj_id}/tasks/{task_id}/hours', json={
@@ -375,12 +402,12 @@ def run_demo_tests():
     }, headers=headers)
     assert r.status_code == 201
     hours_id = r.get_json()['id']
-    print(f"[10/15] POST   /api/projects/{proj_id}/tasks/{task_id}/hours                    -> {r.status_code} Created (id={hours_id})")
+    print(f"[10/15] POST   /api/projects/{proj_id}/tasks/{task_id}/hours                  -> {r.status_code} Created (id={hours_id})")
 
     # 11. GET /api/projects/<id>/tasks/<task_id>/hours/<hours_id>
     r = client.get(f'/api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id}', headers=headers)
     assert r.status_code == 200 and r.get_json()['id'] == hours_id
-    print(f"[11/15] GET    /api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id:<18} -> {r.status_code} OK")
+    print(f"[11/15] GET    /api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id:<17} -> {r.status_code} OK")
 
     # 12. PUT /api/projects/<id>/tasks/<task_id>/hours/<hours_id>
     r = client.put(f'/api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id}', json={
@@ -391,25 +418,40 @@ def run_demo_tests():
         'notes': 'Atnaujintas darbo įrašas'
     }, headers=headers)
     assert r.status_code == 200 and r.get_json()['end_time'] == '16:30'
-    print(f"[12/15] PUT    /api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id:<18} -> {r.status_code} OK")
+    print(f"[12/15] PUT    /api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id:<17} -> {r.status_code} OK")
 
     # 13. DELETE /api/projects/<id>/tasks/<task_id>/hours/<hours_id>
     r = client.delete(f'/api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id}', headers=headers)
-    assert r.status_code == 200
-    print(f"[13/15] DELETE /api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id:<18} -> {r.status_code} OK")
+    assert r.status_code == 204
+    print(f"[13/15] DELETE /api/projects/{proj_id}/tasks/{task_id}/hours/{hours_id:<17} -> {r.status_code} No Content")
 
     # 14. DELETE /api/projects/<id>/tasks/<task_id>
     r = client.delete(f'/api/projects/{proj_id}/tasks/{task_id}', headers=headers)
-    assert r.status_code == 200
-    print(f"[14/15] DELETE /api/projects/{proj_id}/tasks/{task_id:<26} -> {r.status_code} OK")
+    assert r.status_code == 204
+    print(f"[14/15] DELETE /api/projects/{proj_id}/tasks/{task_id:<26} -> {r.status_code} No Content")
 
     # 15. DELETE /api/projects/<id>
     r = client.delete(f'/api/projects/{proj_id}', headers=headers)
-    assert r.status_code == 200
-    print(f"[15/15] DELETE /api/projects/{proj_id:<34} -> {r.status_code} OK")
+    assert r.status_code == 204
+    print(f"[15/15] DELETE /api/projects/{proj_id:<34} -> {r.status_code} No Content")
 
-    print("-" * 75)
-    print("PAPILDOMI SCENARIJAI (404, 400, 422):")
+    print("-" * 78)
+    print("PAPILDOMI REIKALAVIMAI (Puslapiavimas, Filtravimas, Sudėtinis resursas, 404/400/422):")
+
+    # Pagination
+    r_page = client.get('/api/projects?page=1&per_page=3&envelope=1', headers=headers)
+    assert r_page.status_code == 200 and len(r_page.get_json()['items']) == 3
+    print(f"[PAGE]  GET    /api/projects?page=1&per_page=3&envelope=1       -> {r_page.status_code} OK (grąžinti 3 iš {r_page.get_json()['pagination']['total']})")
+
+    # Filtering
+    r_filt = client.get('/api/projects?is_completed=false&search=Kauno', headers=headers)
+    assert r_filt.status_code == 200 and len(r_filt.get_json()) >= 1
+    print(f"[FILT]  GET    /api/projects?is_completed=false&search=Kauno    -> {r_filt.status_code} OK (rasta: {len(r_filt.get_json())})")
+
+    # Composite resource (Project + Task + HoursLogged)
+    r_sum = client.get('/api/projects/1/summary', headers=headers)
+    assert r_sum.status_code == 200 and 'statistics' in r_sum.get_json() and 'tasks_breakdown' in r_sum.get_json()
+    print(f"[COMP]  GET    /api/projects/1/summary (iš 3 esybių)            -> {r_sum.status_code} OK (viso val.: {r_sum.get_json()['statistics']['total_hours_logged']})")
 
     # 404 tests
     r404_p = client.get('/api/projects/999999', headers=headers)
@@ -437,9 +479,9 @@ def run_demo_tests():
     print(f"[422]   POST   /api/projects/1/tasks/1/hours (neigiamos val.)   -> {r422_h.status_code} Unprocessable ({r422_h.get_json()['error']})")
 
     elapsed = time.time() - start_ts
-    print("=" * 75)
-    print(f"VISI 15 API METODŲ IR KLAIDŲ TESTAI SĖKMINGAI PRAĖJO PER {elapsed:.2f} s!")
-    print("=" * 75)
+    print("=" * 78)
+    print(f"VISI 15 API METODŲ SĖKMINGAI PATIKRINTI PER {elapsed:.2f} s!")
+    print("=" * 78)
 
 
 if __name__ == '__main__':

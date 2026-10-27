@@ -3,7 +3,7 @@ cd /d "%~dp0"
 chcp 65001 >nul
 title WorkerH - Paleidimas ir Demonstracija
 echo ===========================================================================
-echo WorkerH - Programos paleidimas be jokio kodo redaktoriaus (VS Code)
+echo WorkerH
 echo ===========================================================================
 
 if not exist "backend\venv\Scripts\python.exe" (

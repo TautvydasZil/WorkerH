@@ -82,8 +82,14 @@
         </form>
 
         <div v-if="newLinkEmail" class="new-link-box">
-          <p class="new-link-label">✓ Pakvietimas išsiųstas {{ newLinkEmail }}</p>
-          <p class="link-note">Galioja 7 dienas. Vienkartinis naudojimas.</p>
+          <p class="new-link-label">✓ Pakvietimas sukurtas ({{ newLinkEmail }})</p>
+          <div class="link-row">
+            <input class="link-input" :value="newLink" readonly @click="$event.target.select()" />
+            <button type="button" class="copy-btn" @click="copyLink">
+              {{ copied ? '✓ Nukopijuota' : 'Kopijuoti nuorodą' }}
+            </button>
+          </div>
+          <p class="link-note">Galioja 7 dienas. Vienkartinis naudojimas (galite atidaryti šią nuorodą tiesiai naršyklėje net be SMTP).</p>
         </div>
       </div>
 
@@ -106,7 +112,12 @@
                   </span>
                 </td>
                 <td>{{ inv.expires_at.slice(0, 10) }}</td>
-                <td><button class="revoke-btn" @click="revokeInvite(inv.id)">Atšaukti</button></td>
+                <td style="display:flex;gap:6px">
+                  <button v-if="!inv.used && !isExpired(inv)" class="copy-btn" style="padding:4px 10px;font-size:12px" @click="copyInviteRowLink(inv.token)">
+                    Kopijuoti nuorodą
+                  </button>
+                  <button class="revoke-btn" @click="revokeInvite(inv.id)">Atšaukti</button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -203,6 +214,14 @@ async function revokeInvite(id) {
 
 async function copyLink() {
   await navigator.clipboard.writeText(newLink.value)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
+}
+
+async function copyInviteRowLink(token) {
+  const url = `${window.location.origin}/register?token=${token}`
+  newLink.value = url
+  await navigator.clipboard.writeText(url)
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
 }

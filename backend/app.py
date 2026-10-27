@@ -4,9 +4,13 @@ from logging.handlers import RotatingFileHandler
 
 from flask import Flask, jsonify, Response, request, send_from_directory
 from flask_cors import CORS
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Užkrauti .env iš backend katalogo arba iš šakninio katalogo
+_base_dir = Path(__file__).resolve().parent
+load_dotenv(_base_dir / '.env')
+load_dotenv(_base_dir.parent / '.env')
 
 IS_PROD         = os.getenv('FLASK_ENV') == 'production'
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',')]

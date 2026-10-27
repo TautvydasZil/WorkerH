@@ -171,8 +171,15 @@ OPENAPI_SPEC = {
         "/api/projects": {
             "get": {
                 "tags": ["1. Projektai (Project - 1 lygmuo)"],
-                "summary": "1. Gauti visų projektų sąrašą",
+                "summary": "1. Gauti visų projektų sąrašą (palaiko puslapiavimą ir filtravimą)",
                 "operationId": "getProjects",
+                "parameters": [
+                    {"name": "page", "in": "query", "required": False, "schema": {"type": "integer", "default": 1}, "description": "Puslapio numeris (nuo 1)"},
+                    {"name": "per_page", "in": "query", "required": False, "schema": {"type": "integer", "default": 10}, "description": "Įrašų skaičius puslapyje"},
+                    {"name": "search", "in": "query", "required": False, "schema": {"type": "string"}, "description": "Paieška pagal pavadinimą, aprašą arba adresą"},
+                    {"name": "is_completed", "in": "query", "required": False, "schema": {"type": "boolean"}, "description": "Filtruoti pagal užbaigtumą (true/false)"},
+                    {"name": "envelope", "in": "query", "required": False, "schema": {"type": "boolean", "default": False}, "description": "Grąžinti su metaduomenų voku (true/false)"}
+                ],
                 "responses": {
                     "200": {
                         "description": "Projektų sąrašas",
@@ -254,12 +261,27 @@ OPENAPI_SPEC = {
                 "summary": "5. Ištrinti projektą pagal ID",
                 "operationId": "deleteProject",
                 "responses": {
+                    "204": {"description": "Projektas ištrintas (be atsako turinio)"},
                     "200": {
                         "description": "Projektas ištrintas",
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MessageResponse"}}}
                     },
                     "403": {"description": "Prieiga uždrausta", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
                     "404": {"description": "Projektas nerastas", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+                }
+            }
+        },
+        "/api/projects/{project_id}/summary": {
+            "parameters": [
+                {"name": "project_id", "in": "path", "required": True, "schema": {"type": "integer"}, "description": "Projekto ID"}
+            ],
+            "get": {
+                "tags": ["1. Projektai (Project - 1 lygmuo)"],
+                "summary": "Gauti sudėtinę projekto suvestinę (iš Project, Task ir WorkHours esybių)",
+                "operationId": "getProjectSummary",
+                "responses": {
+                    "200": {"description": "Sudėtinis projekto, užduočių ir darbo valandų resursas"},
+                    "404": {"description": "Projektas nerastas"}
                 }
             }
         },
@@ -272,8 +294,15 @@ OPENAPI_SPEC = {
             ],
             "get": {
                 "tags": ["2. Užduotys (Task - 2 lygmuo)"],
-                "summary": "6. Gauti visų konkretaus projekto užduočių sąrašą",
+                "summary": "6. Gauti visų konkretaus projekto užduočių sąrašą (palaiko puslapiavimą ir filtravimą)",
                 "operationId": "getProjectTasks",
+                "parameters": [
+                    {"name": "page", "in": "query", "required": False, "schema": {"type": "integer", "default": 1}, "description": "Puslapio numeris"},
+                    {"name": "per_page", "in": "query", "required": False, "schema": {"type": "integer", "default": 10}, "description": "Įrašų skaičius puslapyje"},
+                    {"name": "status", "in": "query", "required": False, "schema": {"type": "string", "enum": ["todo", "in_progress", "done"]}, "description": "Filtruoti pagal būseną (todo, in_progress, done)"},
+                    {"name": "search", "in": "query", "required": False, "schema": {"type": "string"}, "description": "Paieška pagal pavadinimą arba aprašą"},
+                    {"name": "envelope", "in": "query", "required": False, "schema": {"type": "boolean", "default": False}, "description": "Grąžinti su metaduomenų voku"}
+                ],
                 "responses": {
                     "200": {
                         "description": "Projekto užduočių sąrašas",
@@ -351,6 +380,7 @@ OPENAPI_SPEC = {
                 "summary": "10. Ištrinti konkrečią projekto užduotį",
                 "operationId": "deleteProjectTask",
                 "responses": {
+                    "204": {"description": "Užduotis ištrinta (be atsako turinio)"},
                     "200": {
                         "description": "Užduotis ištrinta",
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MessageResponse"}}}
@@ -370,8 +400,17 @@ OPENAPI_SPEC = {
             ],
             "get": {
                 "tags": ["3. Darbo laikas (WorkHours - 3 lygmuo)"],
-                "summary": "11. Gauti visus konkrečios projekto užduoties darbo laiko įrašus",
+                "summary": "11. Gauti visus konkrečios projekto užduoties darbo laiko įrašus (palaiko puslapiavimą ir filtravimą)",
                 "operationId": "getTaskHours",
+                "parameters": [
+                    {"name": "page", "in": "query", "required": False, "schema": {"type": "integer", "default": 1}, "description": "Puslapio numeris"},
+                    {"name": "per_page", "in": "query", "required": False, "schema": {"type": "integer", "default": 10}, "description": "Įrašų skaičius puslapyje"},
+                    {"name": "date_from", "in": "query", "required": False, "schema": {"type": "string", "format": "date"}, "description": "Nuo kurios datos (YYYY-MM-DD)"},
+                    {"name": "date_to", "in": "query", "required": False, "schema": {"type": "string", "format": "date"}, "description": "Iki kurios datos (YYYY-MM-DD)"},
+                    {"name": "min_hours", "in": "query", "required": False, "schema": {"type": "number"}, "description": "Minimalus valandų skaičius"},
+                    {"name": "max_hours", "in": "query", "required": False, "schema": {"type": "number"}, "description": "Maksimalus valandų skaičius"},
+                    {"name": "envelope", "in": "query", "required": False, "schema": {"type": "boolean", "default": False}, "description": "Grąžinti su metaduomenų voku"}
+                ],
                 "responses": {
                     "200": {
                         "description": "Darbo laiko įrašų sąrašas",
@@ -450,6 +489,7 @@ OPENAPI_SPEC = {
                 "summary": "15. Ištrinti konkretų projekto užduoties darbo laiko įrašą",
                 "operationId": "deleteTaskHours",
                 "responses": {
+                    "204": {"description": "Darbo laiko įrašas ištrintas (be atsako turinio)"},
                     "200": {
                         "description": "Darbo laiko įrašas ištrintas",
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MessageResponse"}}}

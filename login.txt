@@ -1,0 +1,3 @@
+Administratorius: admin / admin123
+Vadybininkas: vadybininkas / vadyba123
+Darbuotojai: jonas / darbas123, petras / darbas123, asta / darbas123

@@ -4,13 +4,13 @@ from flask import Blueprint, request, jsonify
 
 from extensions import db
 from models import HoursLogged, Project, Task, LeaveRequest
-from helpers import login_required, get_current_user, _validate_str
+from helpers import login_required, get_current_user, _validate_str, paginate_response
 
 bp = Blueprint('hours', __name__, url_prefix='/api')
 
 
 def _time_to_minutes(t):
-    h, m = map(int, t.split(':'))
+    h, m = map(int, str(t).split(':'))
     if not (0 <= h <= 23 and 0 <= m <= 59) and not (h == 24 and m == 0):
         raise ValueError('Netinkamas laiko formatas')
     return h * 60 + m
@@ -36,6 +36,12 @@ def _overlapping_entry(user_id, date, new_start, new_end, exclude_id=None):
 def _hours_to_dict(e, project_map=None, task_map=None):
     project_map = project_map or {}
     task_map    = task_map or {}
+    links = {
+        'self': f'/api/projects/{e.project_id}/tasks/{e.task_id}/hours/{e.id}' if (e.project_id and e.task_id) else f'/api/hours/{e.id}',
+        'collection': f'/api/projects/{e.project_id}/tasks/{e.task_id}/hours' if (e.project_id and e.task_id) else '/api/hours',
+        'project': f'/api/projects/{e.project_id}' if e.project_id else None,
+        'task': f'/api/projects/{e.project_id}/tasks/{e.task_id}' if (e.project_id and e.task_id) else None,
+    }
     return {
         'id': e.id,
         'user_id': e.user_id,
@@ -48,7 +54,8 @@ def _hours_to_dict(e, project_map=None, task_map=None):
         'start_time': e.start_time,
         'end_time': e.end_time,
         'lunch_break': e.lunch_break,
-        'notes': e.notes
+        'notes': e.notes,
+        '_links': links
     }
 
 
@@ -63,6 +70,9 @@ def _enrich_entries(entries):
 def _validate_and_parse_hours_payload(data, target_user_id, exclude_entry_id=None):
     if not isinstance(data, dict) or not all(k in data for k in ['date', 'start_time', 'end_time']):
         return None, (jsonify({'error': 'Trūksta privalomų laukų (date, start_time, end_time)'}), 400)
+
+    if data['date'] is None or data['start_time'] is None or data['end_time'] is None:
+        return None, (jsonify({'error': 'Laukai date, start_time, end_time negali būti tušti'}), 400)
 
     try:
         date = datetime.strptime(str(data['date']), '%Y-%m-%d').date()
@@ -82,6 +92,8 @@ def _validate_and_parse_hours_payload(data, target_user_id, exclude_entry_id=Non
 
     try:
         raw_lunch = data.get('lunch_break')
+        if isinstance(raw_lunch, bool):
+            raise ValueError()
         lunch_break = int(raw_lunch) if raw_lunch is not None and raw_lunch != '' else 0
         if lunch_break < 0 or lunch_break > 480:
             return None, (jsonify({'error': 'Pietų pertrauka turi būti tarp 0 ir 480 min.'}), 422)
@@ -124,6 +136,38 @@ def _validate_and_parse_hours_payload(data, target_user_id, exclude_entry_id=Non
     }, None
 
 
+def _apply_hours_filters(q):
+    date_from = request.args.get('date_from')
+    if date_from:
+        try:
+            q = q.filter(HoursLogged.date >= datetime.strptime(date_from, '%Y-%m-%d').date())
+        except ValueError:
+            return None, (jsonify({'error': 'Netinkamas date_from formatas (YYYY-MM-DD)'}), 422)
+
+    date_to = request.args.get('date_to')
+    if date_to:
+        try:
+            q = q.filter(HoursLogged.date <= datetime.strptime(date_to, '%Y-%m-%d').date())
+        except ValueError:
+            return None, (jsonify({'error': 'Netinkamas date_to formatas (YYYY-MM-DD)'}), 422)
+
+    min_hours = request.args.get('min_hours')
+    if min_hours is not None and min_hours != '':
+        try:
+            q = q.filter(HoursLogged.hours >= float(min_hours))
+        except ValueError:
+            return None, (jsonify({'error': 'min_hours turi būti skaičius'}), 422)
+
+    max_hours = request.args.get('max_hours')
+    if max_hours is not None and max_hours != '':
+        try:
+            q = q.filter(HoursLogged.hours <= float(max_hours))
+        except ValueError:
+            return None, (jsonify({'error': 'max_hours turi būti skaičius'}), 422)
+
+    return q, None
+
+
 # ============================================================================
 # 3-ojo lygmens hierarchiniai maršrutai:
 # /api/projects/<project_id>/tasks/<task_id>/hours
@@ -155,10 +199,15 @@ def get_task_hours(project_id, task_id):
         if target_id:
             q = q.filter_by(user_id=target_id)
 
+    q, filter_err = _apply_hours_filters(q)
+    if filter_err:
+        return filter_err
+
     entries = q.order_by(HoursLogged.date.desc(), HoursLogged.id.desc()).all()
     project_map = {project.id: project.name}
     task_map    = {task.id: task.title}
-    return jsonify([_hours_to_dict(e, project_map, task_map) for e in entries]), 200
+    items = [_hours_to_dict(e, project_map, task_map) for e in entries]
+    return paginate_response(items, f'/api/projects/{project_id}/tasks/{task_id}/hours')
 
 
 @bp.route('/projects/<int:project_id>/tasks/<int:task_id>/hours/<int:entry_id>', methods=['GET'])
@@ -259,7 +308,9 @@ def delete_task_hours(project_id, task_id, entry_id):
 
     db.session.delete(entry)
     db.session.commit()
-    return jsonify({'message': 'Darbo laiko įrašas ištrintas'}), 200
+    if request.args.get('with_body') == '1':
+        return jsonify({'message': 'Darbo laiko įrašas ištrintas'}), 200
+    return '', 204
 
 
 # ============================================================================
@@ -276,8 +327,13 @@ def log_hours():
     if val_err:
         return val_err
 
-    project_id = data.get('project_id') or None
-    task_id    = data.get('task_id') or None
+    raw_project_id = data.get('project_id')
+    raw_task_id    = data.get('task_id')
+    try:
+        project_id = int(raw_project_id) if raw_project_id not in (None, '') else None
+        task_id    = int(raw_task_id) if raw_task_id not in (None, '') else None
+    except (ValueError, TypeError):
+        return jsonify({'error': 'project_id ir task_id turi būti sveikieji skaičiai'}), 422
 
     if project_id:
         project = db.session.get(Project, project_id)
@@ -288,7 +344,7 @@ def log_hours():
         task = db.session.get(Task, task_id)
         if not task:
             return jsonify({'error': 'Užduotis nerasta'}), 404
-        if project_id and task.project_id != int(project_id):
+        if project_id and task.project_id != project_id:
             return jsonify({'error': 'Užduotis nepriklauso pasirinktam projektui'}), 422
         if not project_id:
             project_id = task.project_id
@@ -319,8 +375,6 @@ def get_hours():
         target_id  = request.args.get('user_id', type=int)
         project_id = request.args.get('project_id', type=int)
         task_id    = request.args.get('task_id', type=int)
-        date_from  = request.args.get('date_from')
-        date_to    = request.args.get('date_to')
         q          = HoursLogged.query
         if target_id:
             q = q.filter_by(user_id=target_id)
@@ -328,21 +382,15 @@ def get_hours():
             q = q.filter_by(project_id=project_id)
         if task_id:
             q = q.filter_by(task_id=task_id)
-        if date_from:
-            try:
-                q = q.filter(HoursLogged.date >= datetime.strptime(date_from, '%Y-%m-%d').date())
-            except ValueError:
-                pass
-        if date_to:
-            try:
-                q = q.filter(HoursLogged.date <= datetime.strptime(date_to, '%Y-%m-%d').date())
-            except ValueError:
-                pass
-        entries = q.order_by(HoursLogged.date.desc(), HoursLogged.id.desc()).all()
     else:
-        entries = HoursLogged.query.filter_by(user_id=user.id).order_by(HoursLogged.date.desc(), HoursLogged.id.desc()).all()
+        q = HoursLogged.query.filter_by(user_id=user.id)
 
-    return jsonify(_enrich_entries(entries)), 200
+    q, filter_err = _apply_hours_filters(q)
+    if filter_err:
+        return filter_err
+
+    entries = q.order_by(HoursLogged.date.desc(), HoursLogged.id.desc()).all()
+    return paginate_response(_enrich_entries(entries), '/api/hours')
 
 
 @bp.route('/hours/<int:entry_id>', methods=['GET'])
@@ -372,8 +420,13 @@ def update_hours(entry_id):
     if val_err:
         return val_err
 
-    project_id = data.get('project_id', entry.project_id)
-    task_id    = data.get('task_id', entry.task_id)
+    raw_project_id = data.get('project_id', entry.project_id)
+    raw_task_id    = data.get('task_id', entry.task_id)
+    try:
+        project_id = int(raw_project_id) if raw_project_id not in (None, '') else None
+        task_id    = int(raw_task_id) if raw_task_id not in (None, '') else None
+    except (ValueError, TypeError):
+        return jsonify({'error': 'project_id ir task_id turi būti sveikieji skaičiai'}), 422
 
     if project_id and not db.session.get(Project, project_id):
         return jsonify({'error': 'Projektas nerastas'}), 404
@@ -381,7 +434,7 @@ def update_hours(entry_id):
         task = db.session.get(Task, task_id)
         if not task:
             return jsonify({'error': 'Užduotis nerasta'}), 404
-        if project_id and task.project_id != int(project_id):
+        if project_id and task.project_id != project_id:
             return jsonify({'error': 'Užduotis nepriklauso pasirinktam projektui'}), 422
 
     entry.date        = parsed['date']
@@ -389,8 +442,8 @@ def update_hours(entry_id):
     entry.end_time    = parsed['end_time']
     entry.lunch_break = parsed['lunch_break']
     entry.hours       = parsed['hours']
-    entry.project_id  = project_id or None
-    entry.task_id     = task_id or None
+    entry.project_id  = project_id
+    entry.task_id     = task_id
     entry.notes       = parsed['notes']
     db.session.commit()
 
@@ -408,4 +461,4 @@ def delete_hours(entry_id):
         return jsonify({'error': 'Prieiga uždrausta'}), 403
     db.session.delete(entry)
     db.session.commit()
-    return jsonify({'message': 'Ištrinta'}), 200
+    return '', 204

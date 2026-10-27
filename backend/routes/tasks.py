@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 
 from extensions import db
 from models import Project, Task, HoursLogged
-from helpers import login_required, manager_or_admin_required, _validate_str
+from helpers import login_required, manager_or_admin_required, _validate_str, paginate_response
 
 bp = Blueprint('tasks', __name__, url_prefix='/api')
 
@@ -25,8 +25,23 @@ def get_project_tasks(project_id):
     project, _ = _get_project_and_task(project_id)
     if not project:
         return jsonify({'error': 'Projektas nerastas'}), 404
-    tasks = Task.query.filter_by(project_id=project_id).order_by(Task.id.asc()).all()
-    return jsonify([t.to_dict() for t in tasks]), 200
+
+    q = Task.query.filter_by(project_id=project_id)
+
+    # Filtravimas pagal būseną (?status=todo|in_progress|done)
+    status = (request.args.get('status') or '').strip()
+    if status:
+        if status not in VALID_TASK_STATUSES:
+            return jsonify({'error': f'Būsenos filtras turi būti vienas iš: {", ".join(VALID_TASK_STATUSES)}'}), 422
+        q = q.filter_by(status=status)
+
+    # Filtravimas pagal pavadinimą / paiešką (?search=... arba ?title=...)
+    search = (request.args.get('search') or request.args.get('title') or '').strip()
+    if search:
+        q = q.filter(Task.title.ilike(f'%{search}%'))
+
+    tasks = q.order_by(Task.id.asc()).all()
+    return paginate_response([t.to_dict() for t in tasks], f'/api/projects/{project_id}/tasks')
 
 
 @bp.route('/projects/<int:project_id>/tasks/<int:task_id>', methods=['GET'])
@@ -130,15 +145,22 @@ def delete_project_task(project_id, task_id):
     HoursLogged.query.filter_by(task_id=task_id).update({'task_id': None})
     db.session.delete(task)
     db.session.commit()
-    return jsonify({'message': 'Užduotis ištrinta'}), 200
+    if request.args.get('with_body') == '1':
+        return jsonify({'message': 'Užduotis ištrinta'}), 200
+    return '', 204
 
 
 @bp.route('/tasks', methods=['GET'])
 @login_required
 def get_all_tasks():
     project_id = request.args.get('project_id', type=int)
+    status = (request.args.get('status') or '').strip()
     q = Task.query
     if project_id:
         q = q.filter_by(project_id=project_id)
+    if status:
+        if status not in VALID_TASK_STATUSES:
+            return jsonify({'error': f'Būsenos filtras turi būti vienas iš: {", ".join(VALID_TASK_STATUSES)}'}), 422
+        q = q.filter_by(status=status)
     tasks = q.order_by(Task.project_id.asc(), Task.id.asc()).all()
-    return jsonify([t.to_dict() for t in tasks]), 200
+    return paginate_response([t.to_dict() for t in tasks], '/api/tasks')
